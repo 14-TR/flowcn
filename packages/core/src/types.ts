@@ -194,5 +194,5 @@ export interface Diagnostic {
  */
 export interface NormalizedGraph extends GraphDoc {
   /** All edges have IDs assigned */
-  edges: Required<Pick<Edge, 'id'>> & Edge[];
+  edges: (Required<Pick<Edge, 'id'>> & Edge)[];
 }

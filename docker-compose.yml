@@ -23,7 +23,7 @@ services:
       - WATCHPACK_POLLING=true
     stdin_open: true
     tty: true
-    command: sh -c "yes | pnpm install && pnpm dev"
+    command: sh -c "yes | pnpm install && pnpm --filter @flowcn/core build && pnpm --filter @flowcn/react build && pnpm dev"
 
   prod:
     build:
