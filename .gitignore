@@ -1,9 +1,44 @@
+# Dependencies
 node_modules
+.pnpm-store
+
+# Build outputs
 .next
 dist
 build
+out
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
 *.log
-.DS_Store
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
 .env*.local
+
+# Testing
 coverage
+
+# Caches
 .turbo
+.eslintcache
+.cache
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Docker (local volumes, not needed in repo)
+docker-compose.override.yml
