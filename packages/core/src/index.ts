@@ -19,6 +19,12 @@ export type {
   EdgeRoute,
   GroupBox,
   Diagnostic,
+  // Shape and edge types
+  ShapeType,
+  EndpointStyle,
+  LineStyle,
+  CurveType,
+  HandlePosition,
 } from './types';
 
 // Export validation functions
@@ -29,5 +35,5 @@ export { normalizeGraph } from './normalize';
 
 // Export layout functions
 export { layoutGraph } from './layout';
-export { computeLayeredLayout, canUseLayeredLayout } from './layout/layered';
+export { computeLayeredLayout, canUseLayeredLayout, computeEdgeRoutes, createOrthogonalPath } from './layout/layered';
 export { computeGridLayout } from './layout/grid';

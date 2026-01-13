@@ -278,7 +278,7 @@ export function computeLayeredLayout(
 /**
  * Computes edge routes with orthogonal connectors
  */
-function computeEdgeRoutes(
+export function computeEdgeRoutes(
   graph: NormalizedGraph,
   nodePositions: Record<string, NodePosition>,
   direction: 'LR' | 'TB'
@@ -334,7 +334,7 @@ function computeEdgeRoutes(
 /**
  * Creates an orthogonal path between two points
  */
-function createOrthogonalPath(
+export function createOrthogonalPath(
   start: Point,
   end: Point,
   direction: 'LR' | 'TB'

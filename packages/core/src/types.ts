@@ -3,6 +3,42 @@
  */
 
 /**
+ * Available node shapes
+ */
+export type ShapeType =
+  | 'rectangle'
+  | 'rounded'
+  | 'pill'
+  | 'diamond'
+  | 'oval'
+  | 'parallelogram'
+  | 'hexagon'
+  | 'cylinder'
+  | 'cloud'
+  | 'triangle'
+  | 'star';
+
+/**
+ * Edge endpoint styles
+ */
+export type EndpointStyle = 'arrow' | 'dot' | 'diamond' | 'square' | 'none';
+
+/**
+ * Edge line styles
+ */
+export type LineStyle = 'solid' | 'dashed' | 'dotted';
+
+/**
+ * Edge curve type
+ */
+export type CurveType = 'straight' | 'elbow' | 'bezier';
+
+/**
+ * Connection handle position on a node
+ */
+export type HandlePosition = 'top' | 'right' | 'bottom' | 'left';
+
+/**
  * A node in the graph
  */
 export interface Node {
@@ -12,6 +48,12 @@ export interface Node {
   label: string;
   /** Node type for semantic meaning or styling */
   type?: string;
+  /** Visual shape of the node */
+  shape?: ShapeType;
+  /** Fill color (hex or CSS color) */
+  color?: string;
+  /** Border color (hex or CSS color) */
+  borderColor?: string;
   /** Optional group membership */
   group?: string;
   /** Arbitrary node data */
@@ -34,8 +76,24 @@ export interface Edge {
   to: string;
   /** Optional label */
   label?: string;
-  /** Edge kind (e.g., 'solid', 'dashed') */
+  /** Edge kind (e.g., 'solid', 'dashed') - deprecated, use lineStyle */
   kind?: string;
+  /** Line style */
+  lineStyle?: LineStyle;
+  /** Curve type for the edge path */
+  curveType?: CurveType;
+  /** Source endpoint style */
+  sourceEndpoint?: EndpointStyle;
+  /** Target endpoint style */
+  targetEndpoint?: EndpointStyle;
+  /** Edge color (hex or CSS color) */
+  color?: string;
+  /** Manual waypoints for custom routing */
+  waypoints?: Point[];
+  /** Source connection handle position on the source node */
+  sourceHandle?: HandlePosition;
+  /** Target connection handle position on the target node */
+  targetHandle?: HandlePosition;
   /** Arbitrary edge data */
   data?: Record<string, unknown>;
 }

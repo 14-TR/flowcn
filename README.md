@@ -210,8 +210,26 @@ Tests verify:
 
 ## Documentation
 
+### Quick Reference
 - [Design Documentation](docs/design.md): Architecture and determinism guarantees
 - [DSL Documentation](docs/dsl.md): GraphDoc JSON format with examples
+
+### Comprehensive Specifications
+The `documentation/` folder contains detailed specifications:
+
+| Category | Specification | Description |
+|----------|--------------|-------------|
+| **Navigation** | [nav_spec.md](documentation/nav_spec.md) | Master index for all documentation |
+| **Governance** | [docs_spec.md](documentation/project_specs/00-governance/docs_spec.md) | Documentation standards |
+| | [protocols_spec.md](documentation/project_specs/00-governance/protocols_spec.md) | Available protocols and commands |
+| | [audit_spec.md](documentation/project_specs/00-governance/audit_spec.md) | Code auditing standards |
+| **Architecture** | [architecture_spec.md](documentation/project_specs/10-architecture/architecture_spec.md) | Monorepo architecture |
+| | [repo_spec.md](documentation/project_specs/10-architecture/repo_spec.md) | TypeScript/React coding standards |
+| **Operations** | [docker_ops_spec.md](documentation/project_specs/20-operations/docker_ops_spec.md) | Docker development guide |
+| | [monorepo_ops_spec.md](documentation/project_specs/20-operations/monorepo_ops_spec.md) | pnpm workspace operations |
+| **Packages** | [core_spec.md](documentation/project_specs/30-packages/core_spec.md) | @flowcn/core package |
+| | [react_spec.md](documentation/project_specs/30-packages/react_spec.md) | @flowcn/react package |
+| | [demo_spec.md](documentation/project_specs/30-packages/demo_spec.md) | Demo application |
 
 ## Contributing
 

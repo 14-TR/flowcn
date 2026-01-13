@@ -24,7 +24,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/react
       '@radix-ui/react-slot':
-        specifier: ^1.0.2
+        specifier: ^1.2.4
         version: 1.2.4(@types/react@18.3.27)(react@18.3.1)
       class-variance-authority:
         specifier: ^0.7.0

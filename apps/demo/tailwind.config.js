@@ -6,6 +6,8 @@ module.exports = {
     './components/**/*.{ts,tsx}',
     './app/**/*.{ts,tsx}',
     './src/**/*.{ts,tsx}',
+    // Include @flowcn/react package for Tailwind class processing
+    '../../packages/react/src/**/*.{ts,tsx}',
   ],
   theme: {
     container: {

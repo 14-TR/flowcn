@@ -21,8 +21,8 @@ export default function Home() {
           </p>
           <div className="flex gap-4 justify-center">
             <Button asChild size="lg">
-              <Link href="/examples/flowchart">
-                View Examples
+              <Link href="/examples/editor">
+                Open Editor
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
@@ -78,57 +78,22 @@ export default function Home() {
         </div>
 
         <div className="max-w-4xl mx-auto">
-          <h2 className="text-3xl font-bold mb-6">Examples</h2>
-          <div className="grid gap-4">
-            <Card className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <CardTitle>
-                  <Link
-                    href="/examples/flowchart"
-                    className="hover:text-primary"
-                  >
-                    Simple Flowchart
-                  </Link>
-                </CardTitle>
-                <CardDescription>
-                  A basic flowchart demonstrating layered layout with decision
-                  nodes
-                </CardDescription>
-              </CardHeader>
-            </Card>
-
-            <Card className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <CardTitle>
-                  <Link
-                    href="/examples/clusters"
-                    className="hover:text-primary"
-                  >
-                    Clustered Diagram
-                  </Link>
-                </CardTitle>
-                <CardDescription>
-                  Nodes organized in groups showing a layered architecture
-                </CardDescription>
-              </CardHeader>
-            </Card>
-
-            <Card className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <CardTitle>
-                  <Link
-                    href="/examples/agent-workflow"
-                    className="hover:text-primary"
-                  >
-                    AI Agent Workflow
-                  </Link>
-                </CardTitle>
-                <CardDescription>
-                  A complex workflow showing an AI agent processing pipeline
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </div>
+          <h2 className="text-3xl font-bold mb-6">Get Started</h2>
+          <Card className="hover:shadow-lg transition-shadow border-primary/50">
+            <CardHeader>
+              <CardTitle>
+                <Link
+                  href="/examples/editor"
+                  className="hover:text-primary"
+                >
+                  Interactive Editor
+                </Link>
+              </CardTitle>
+              <CardDescription>
+                Build and modify graphs visually with drag-and-drop nodes, connection creation, and real-time editing
+              </CardDescription>
+            </CardHeader>
+          </Card>
         </div>
       </div>
     </div>
