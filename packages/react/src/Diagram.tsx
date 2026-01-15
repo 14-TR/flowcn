@@ -119,6 +119,7 @@ export const Diagram = forwardRef<DiagramRef, DiagramProps>(function Diagram({
   const { state: panZoomState, containerProps: panZoomContainerProps, reset: resetPanZoom, zoomToFit, setZoom } = usePanZoom({
     disabled: !panZoomEnabled,
     onChange: onPanZoomChange,
+    containerRef: containerRef as React.RefObject<HTMLElement>,
   });
 
   // Track connection source handle
@@ -180,18 +181,88 @@ export const Diagram = forwardRef<DiagramRef, DiagramProps>(function Diagram({
     }
   }, []);
 
-  // Recompute edge routes when positions change
+  // Helper function to check if a line segment intersects a rectangle (with margin)
+  const segmentIntersectsRect = useCallback((
+    p1: Point,
+    p2: Point,
+    rect: { x: number; y: number; width: number; height: number },
+    margin: number
+  ): boolean => {
+    const left = rect.x - margin;
+    const right = rect.x + rect.width + margin;
+    const top = rect.y - margin;
+    const bottom = rect.y + rect.height + margin;
+
+    // Check if either endpoint is inside the rect
+    const p1Inside = p1.x >= left && p1.x <= right && p1.y >= top && p1.y <= bottom;
+    const p2Inside = p2.x >= left && p2.x <= right && p2.y >= top && p2.y <= bottom;
+    if (p1Inside || p2Inside) return true;
+
+    // Check line-rectangle intersection using Liang-Barsky algorithm
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    
+    let tMin = 0;
+    let tMax = 1;
+    
+    // Check against each edge
+    const edges = [
+      { p: -dx, q: p1.x - left },   // Left
+      { p: dx, q: right - p1.x },   // Right
+      { p: -dy, q: p1.y - top },    // Top
+      { p: dy, q: bottom - p1.y },  // Bottom
+    ];
+    
+    for (const { p, q } of edges) {
+      if (p === 0) {
+        if (q < 0) return false;
+      } else {
+        const t = q / p;
+        if (p < 0) {
+          tMin = Math.max(tMin, t);
+        } else {
+          tMax = Math.min(tMax, t);
+        }
+        if (tMin > tMax) return false;
+      }
+    }
+    
+    return tMin <= tMax;
+  }, []);
+
+  // Helper to check if a path intersects any obstacle node
+  const pathIntersectsObstacles = useCallback((
+    points: Point[],
+    obstacles: { x: number; y: number; width: number; height: number }[],
+    margin: number
+  ): boolean => {
+    for (let i = 0; i < points.length - 1; i++) {
+      for (const obstacle of obstacles) {
+        if (segmentIntersectsRect(points[i], points[i + 1], obstacle, margin)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }, [segmentIntersectsRect]);
+
+  // Recompute edge routes when positions change - with obstacle avoidance
   const effectiveEdgeRoutes = useMemo(() => {
-    // Always recalculate to respect handle positions
     const direction = options?.direction || doc.layout?.direction || 'LR';
     const routes: Record<string, { points: Point[]; labelPoint?: Point }> = {};
-    const MARGIN = 20; // Clearance margin around nodes
+    const MARGIN = 50; // Clearance margin around nodes for routing
+    const OBSTACLE_MARGIN = 25; // Detection margin for obstacles
 
     for (const edge of normalizedDoc.edges) {
       const fromPos = effectivePositions[edge.from];
       const toPos = effectivePositions[edge.to];
 
       if (!fromPos || !toPos) continue;
+
+      // Collect ALL obstacle nodes (all nodes except source and target)
+      const obstacles = Object.entries(effectivePositions)
+        .filter(([nodeId]) => nodeId !== edge.from && nodeId !== edge.to)
+        .map(([, pos]) => pos);
 
       // Get the handle positions or use defaults based on layout direction
       const defaultSourceHandle: HandlePosition = direction === 'LR' ? 'right' : 'bottom';
@@ -203,7 +274,7 @@ export const Diagram = forwardRef<DiagramRef, DiagramProps>(function Diagram({
       const startPoint = getHandlePoint(fromPos, sourceHandle, defaultSourceHandle);
       const endPoint = getHandlePoint(toPos, targetHandle, defaultTargetHandle);
 
-      // If edge has waypoints, use them
+      // If edge has waypoints, use them (user-defined routes)
       if (edge.waypoints && edge.waypoints.length > 0) {
         const points = [startPoint, ...edge.waypoints, endPoint];
         const midIndex = Math.floor(points.length / 2);
@@ -211,82 +282,298 @@ export const Diagram = forwardRef<DiagramRef, DiagramProps>(function Diagram({
         continue;
       }
 
+      // Calculate the global bounding box of ALL nodes (source, target, and obstacles)
+      let globalMinY = Math.min(fromPos.y, toPos.y);
+      let globalMaxY = Math.max(fromPos.y + fromPos.height, toPos.y + toPos.height);
+      let globalMinX = Math.min(fromPos.x, toPos.x);
+      let globalMaxX = Math.max(fromPos.x + fromPos.width, toPos.x + toPos.width);
+      
+      for (const obs of obstacles) {
+        globalMinY = Math.min(globalMinY, obs.y);
+        globalMaxY = Math.max(globalMaxY, obs.y + obs.height);
+        globalMinX = Math.min(globalMinX, obs.x);
+        globalMaxX = Math.max(globalMaxX, obs.x + obs.width);
+      }
+
+      // Define safe positions that are GUARANTEED to be outside all nodes
+      const safeTop = globalMinY - MARGIN;
+      const safeBottom = globalMaxY + MARGIN;
+      const safeLeft = globalMinX - MARGIN;
+      const safeRight = globalMaxX + MARGIN;
+
       // Generate routing that avoids going through nodes
+      // This algorithm respects handle directions and finds obstacle-free paths
       const points = (() => {
-        // Get first exit point outside the source node
-        const exitPoint = (() => {
-          switch (sourceHandle) {
-            case 'right': return { x: fromPos.x + fromPos.width + MARGIN, y: startPoint.y };
-            case 'left': return { x: fromPos.x - MARGIN, y: startPoint.y };
-            case 'bottom': return { x: startPoint.x, y: fromPos.y + fromPos.height + MARGIN };
-            case 'top': return { x: startPoint.x, y: fromPos.y - MARGIN };
-            default: return { x: fromPos.x + fromPos.width + MARGIN, y: startPoint.y };
-          }
-        })();
-        
-        // Get entry point outside the target node
-        const entryPoint = (() => {
-          switch (targetHandle) {
-            case 'left': return { x: toPos.x - MARGIN, y: endPoint.y };
-            case 'right': return { x: toPos.x + toPos.width + MARGIN, y: endPoint.y };
-            case 'top': return { x: endPoint.x, y: toPos.y - MARGIN };
-            case 'bottom': return { x: endPoint.x, y: toPos.y + toPos.height + MARGIN };
-            default: return { x: toPos.x - MARGIN, y: endPoint.y };
-          }
-        })();
-        
-        // Check if horizontal or vertical handles
         const sourceIsHorizontal = sourceHandle === 'left' || sourceHandle === 'right';
         const targetIsHorizontal = targetHandle === 'left' || targetHandle === 'right';
         
-        if (sourceIsHorizontal && targetIsHorizontal) {
-          // Both horizontal - route with vertical middle segment
-          // Choose midpoint that doesn't intersect nodes
-          const midX = (exitPoint.x + entryPoint.x) / 2;
-          return [
-            startPoint,
-            exitPoint,
-            { x: midX, y: exitPoint.y },
-            { x: midX, y: entryPoint.y },
-            entryPoint,
-            endPoint,
-          ];
+        // First, move away from the source node in the handle direction
+        // This ensures we respect the handle and clear the source node's area
+        const EXIT_DISTANCE = 30;
+        let exitPoint: Point;
+        switch (sourceHandle) {
+          case 'right':
+            exitPoint = { x: startPoint.x + EXIT_DISTANCE, y: startPoint.y };
+            break;
+          case 'left':
+            exitPoint = { x: startPoint.x - EXIT_DISTANCE, y: startPoint.y };
+            break;
+          case 'bottom':
+            exitPoint = { x: startPoint.x, y: startPoint.y + EXIT_DISTANCE };
+            break;
+          case 'top':
+            exitPoint = { x: startPoint.x, y: startPoint.y - EXIT_DISTANCE };
+            break;
+          default:
+            exitPoint = { x: startPoint.x + EXIT_DISTANCE, y: startPoint.y };
         }
         
-        if (!sourceIsHorizontal && !targetIsHorizontal) {
-          // Both vertical - route with horizontal middle segment
-          const midY = (exitPoint.y + entryPoint.y) / 2;
-          return [
-            startPoint,
-            exitPoint,
-            { x: exitPoint.x, y: midY },
-            { x: entryPoint.x, y: midY },
-            entryPoint,
-            endPoint,
-          ];
+        // Similarly, define an entry point approaching the target
+        let entryPoint: Point;
+        switch (targetHandle) {
+          case 'left':
+            entryPoint = { x: endPoint.x - EXIT_DISTANCE, y: endPoint.y };
+            break;
+          case 'right':
+            entryPoint = { x: endPoint.x + EXIT_DISTANCE, y: endPoint.y };
+            break;
+          case 'top':
+            entryPoint = { x: endPoint.x, y: endPoint.y - EXIT_DISTANCE };
+            break;
+          case 'bottom':
+            entryPoint = { x: endPoint.x, y: endPoint.y + EXIT_DISTANCE };
+            break;
+          default:
+            entryPoint = { x: endPoint.x - EXIT_DISTANCE, y: endPoint.y };
         }
+
+        // Helper to check if a complete path is valid
+        const isValidPath = (path: Point[]): boolean => {
+          return !pathIntersectsObstacles(path, obstacles, OBSTACLE_MARGIN);
+        };
+
+        // Helper to generate a basic orthogonal path between two points
+        const generateOrthogonalPath = (from: Point, to: Point, preferHorizontalFirst: boolean): Point[] => {
+          if (preferHorizontalFirst) {
+            return [from, { x: to.x, y: from.y }, to];
+          } else {
+            return [from, { x: from.x, y: to.y }, to];
+          }
+        };
+
+        // Try direct path first (respecting handles)
+        const directPath = sourceIsHorizontal && targetIsHorizontal
+          ? [startPoint, exitPoint, { x: exitPoint.x, y: entryPoint.y }, entryPoint, endPoint]
+          : !sourceIsHorizontal && !targetIsHorizontal
+            ? [startPoint, exitPoint, { x: entryPoint.x, y: exitPoint.y }, entryPoint, endPoint]
+            : sourceIsHorizontal
+              ? [startPoint, exitPoint, { x: exitPoint.x, y: endPoint.y }, endPoint]
+              : [startPoint, exitPoint, { x: endPoint.x, y: exitPoint.y }, endPoint];
         
-        // Mixed: one horizontal, one vertical
-        // Route through the corner outside both nodes
-        if (sourceIsHorizontal) {
-          // Source is horizontal (exit left/right), target is vertical (entry top/bottom)
-          return [
-            startPoint,
-            exitPoint,
-            { x: entryPoint.x, y: exitPoint.y },
-            entryPoint,
-            endPoint,
-          ];
-        } else {
-          // Source is vertical (exit top/bottom), target is horizontal (entry left/right)
-          return [
-            startPoint,
-            exitPoint,
-            { x: exitPoint.x, y: entryPoint.y },
-            entryPoint,
-            endPoint,
-          ];
+        // Simplify the direct path if exit/entry points are inline
+        const simplifiedDirectPath = directPath.filter((pt, i, arr) => {
+          if (i === 0 || i === arr.length - 1) return true;
+          const prev = arr[i - 1];
+          const next = arr[i + 1];
+          // Remove point if it's on the same line as prev and next
+          const sameLine = (prev.x === pt.x && pt.x === next.x) || (prev.y === pt.y && pt.y === next.y);
+          return !sameLine;
+        });
+
+        if (obstacles.length === 0 || isValidPath(simplifiedDirectPath)) {
+          return simplifiedDirectPath;
         }
+
+        // Direct path crosses obstacles - need to route around
+        // Generate multiple alternative paths and pick the shortest valid one
+        const alternativePaths: Point[][] = [];
+
+        // Strategy 1: Route via the safe boundaries (top, bottom, left, right)
+        // These are guaranteed to be outside all nodes
+        
+        // Route via TOP: go up to safeTop, traverse, come down
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: exitPoint.x, y: safeTop },
+          { x: entryPoint.x, y: safeTop },
+          entryPoint, endPoint
+        ]);
+        
+        // Route via BOTTOM: go down to safeBottom, traverse, come up
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: exitPoint.x, y: safeBottom },
+          { x: entryPoint.x, y: safeBottom },
+          entryPoint, endPoint
+        ]);
+        
+        // Route via LEFT: go left to safeLeft, traverse, come right
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: safeLeft, y: exitPoint.y },
+          { x: safeLeft, y: entryPoint.y },
+          entryPoint, endPoint
+        ]);
+        
+        // Route via RIGHT: go right to safeRight, traverse, come left
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: safeRight, y: exitPoint.y },
+          { x: safeRight, y: entryPoint.y },
+          entryPoint, endPoint
+        ]);
+
+        // Strategy 2: Corner routes (exit horizontal, traverse vertical via corner)
+        // Top-left corner
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: safeLeft, y: exitPoint.y },
+          { x: safeLeft, y: safeTop },
+          { x: entryPoint.x, y: safeTop },
+          entryPoint, endPoint
+        ]);
+        
+        // Top-right corner
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: safeRight, y: exitPoint.y },
+          { x: safeRight, y: safeTop },
+          { x: entryPoint.x, y: safeTop },
+          entryPoint, endPoint
+        ]);
+        
+        // Bottom-left corner
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: safeLeft, y: exitPoint.y },
+          { x: safeLeft, y: safeBottom },
+          { x: entryPoint.x, y: safeBottom },
+          entryPoint, endPoint
+        ]);
+        
+        // Bottom-right corner
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: safeRight, y: exitPoint.y },
+          { x: safeRight, y: safeBottom },
+          { x: entryPoint.x, y: safeBottom },
+          entryPoint, endPoint
+        ]);
+
+        // Strategy 3: Vertical exit first, then horizontal
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: exitPoint.x, y: safeTop },
+          { x: safeLeft, y: safeTop },
+          { x: safeLeft, y: entryPoint.y },
+          entryPoint, endPoint
+        ]);
+        
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: exitPoint.x, y: safeTop },
+          { x: safeRight, y: safeTop },
+          { x: safeRight, y: entryPoint.y },
+          entryPoint, endPoint
+        ]);
+        
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: exitPoint.x, y: safeBottom },
+          { x: safeLeft, y: safeBottom },
+          { x: safeLeft, y: entryPoint.y },
+          entryPoint, endPoint
+        ]);
+        
+        alternativePaths.push([
+          startPoint, exitPoint,
+          { x: exitPoint.x, y: safeBottom },
+          { x: safeRight, y: safeBottom },
+          { x: safeRight, y: entryPoint.y },
+          entryPoint, endPoint
+        ]);
+
+        // Find the shortest valid path
+        let bestPath = simplifiedDirectPath;
+        let bestLength = Infinity;
+
+        for (const path of alternativePaths) {
+          if (isValidPath(path)) {
+            // Calculate path length (Manhattan distance)
+            let length = 0;
+            for (let i = 0; i < path.length - 1; i++) {
+              const dx = Math.abs(path[i + 1].x - path[i].x);
+              const dy = Math.abs(path[i + 1].y - path[i].y);
+              length += dx + dy;
+            }
+            if (length < bestLength) {
+              bestLength = length;
+              bestPath = path;
+            }
+          }
+        }
+
+        // If we found a valid path, return it
+        if (isValidPath(bestPath)) {
+          return bestPath;
+        }
+
+        // Ultimate fallback: go FAR outside the diagram
+        // Use a margin so large that we're guaranteed to clear everything
+        const farMargin = MARGIN * 4;
+        const farTop = globalMinY - farMargin;
+        const farBottom = globalMaxY + farMargin;
+        const farLeft = globalMinX - farMargin;
+        const farRight = globalMaxX + farMargin;
+
+        // Generate comprehensive fallback routes
+        const fallbackRoutes: Point[][] = [
+          // Go far up, far left, come down
+          [startPoint, { x: startPoint.x, y: farTop }, { x: farLeft, y: farTop }, { x: farLeft, y: endPoint.y }, endPoint],
+          // Go far up, far right, come down
+          [startPoint, { x: startPoint.x, y: farTop }, { x: farRight, y: farTop }, { x: farRight, y: endPoint.y }, endPoint],
+          // Go far down, far left, come up
+          [startPoint, { x: startPoint.x, y: farBottom }, { x: farLeft, y: farBottom }, { x: farLeft, y: endPoint.y }, endPoint],
+          // Go far down, far right, come up
+          [startPoint, { x: startPoint.x, y: farBottom }, { x: farRight, y: farBottom }, { x: farRight, y: endPoint.y }, endPoint],
+          // Go far left, far up, come right
+          [startPoint, { x: farLeft, y: startPoint.y }, { x: farLeft, y: farTop }, { x: endPoint.x, y: farTop }, endPoint],
+          // Go far left, far down, come right
+          [startPoint, { x: farLeft, y: startPoint.y }, { x: farLeft, y: farBottom }, { x: endPoint.x, y: farBottom }, endPoint],
+          // Go far right, far up, come left
+          [startPoint, { x: farRight, y: startPoint.y }, { x: farRight, y: farTop }, { x: endPoint.x, y: farTop }, endPoint],
+          // Go far right, far down, come left
+          [startPoint, { x: farRight, y: startPoint.y }, { x: farRight, y: farBottom }, { x: endPoint.x, y: farBottom }, endPoint],
+        ];
+
+        // Find first valid fallback
+        for (const route of fallbackRoutes) {
+          if (isValidPath(route)) {
+            return route;
+          }
+        }
+
+        // Absolute last resort: wrap completely around the diagram
+        // This path goes: right → up → across top → down → to target
+        // The segments along the boundaries are guaranteed safe
+        const ultimatePath = [
+          startPoint,
+          { x: farRight, y: startPoint.y },
+          { x: farRight, y: farTop },
+          { x: farLeft, y: farTop },
+          { x: farLeft, y: farBottom },
+          { x: endPoint.x, y: farBottom },
+          endPoint,
+        ];
+
+        // Even verify the ultimate path
+        if (isValidPath(ultimatePath)) {
+          return ultimatePath;
+        }
+
+        // If NOTHING works (shouldn't happen), return the direct path
+        // and let it cross - at least the diagram will render
+        return simplifiedDirectPath;
       })();
 
       const midIndex = Math.floor(points.length / 2);
@@ -294,7 +581,7 @@ export const Diagram = forwardRef<DiagramRef, DiagramProps>(function Diagram({
     }
 
     return routes;
-  }, [doc, options, normalizedDoc.edges, effectivePositions, getHandlePoint]);
+  }, [doc, options, normalizedDoc.edges, effectivePositions, getHandlePoint, pathIntersectsObstacles]);
 
   // Calculate effective diagram dimensions
   const effectiveDimensions = useMemo(() => {
@@ -726,7 +1013,6 @@ export const Diagram = forwardRef<DiagramRef, DiagramProps>(function Diagram({
       }}
       onClick={handleCanvasClick}
       onMouseDown={panZoomContainerProps.onMouseDown}
-      onWheel={panZoomContainerProps.onWheel}
     >
       {/* Transformable content layer */}
       <div

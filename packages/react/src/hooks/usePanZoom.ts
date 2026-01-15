@@ -2,7 +2,7 @@
  * Hook for pan and zoom functionality
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, RefObject } from 'react';
 
 export interface PanZoomState {
   /** Current pan offset X */
@@ -26,6 +26,8 @@ export interface UsePanZoomOptions {
   disabled?: boolean;
   /** Callback when state changes */
   onChange?: (state: PanZoomState) => void;
+  /** Container ref for non-passive wheel events */
+  containerRef?: RefObject<HTMLElement>;
 }
 
 export interface UsePanZoomResult {
@@ -38,7 +40,6 @@ export interface UsePanZoomResult {
   /** Container props to spread */
   containerProps: {
     onMouseDown: (e: React.MouseEvent) => void;
-    onWheel: (e: React.WheelEvent) => void;
     style: React.CSSProperties;
   };
   /** Reset to initial state */
@@ -64,12 +65,16 @@ export function usePanZoom({
   zoomStep = 0.1,
   disabled = false,
   onChange,
+  containerRef,
 }: UsePanZoomOptions = {}): UsePanZoomResult {
   const initialState = { ...DEFAULT_STATE, ...initial };
   const [state, setState] = useState<PanZoomState>(initialState);
   const [isPanning, setIsPanning] = useState(false);
   const startPosRef = useRef({ x: 0, y: 0 });
   const startPanRef = useRef({ x: 0, y: 0 });
+  // Use refs to avoid stale closures in the wheel event listener
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const updateState = useCallback((newState: PanZoomState) => {
     setState(newState);
@@ -90,31 +95,45 @@ export function usePanZoom({
     }
   }, [disabled, state.panX, state.panY]);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (disabled) return;
-    e.preventDefault();
+  // Use native wheel event listener with { passive: false } to allow preventDefault
+  useEffect(() => {
+    const container = containerRef?.current;
+    if (!container || disabled) return;
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
 
-    // Calculate new zoom
-    const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
-    const newZoom = Math.max(minZoom, Math.min(maxZoom, state.zoom + delta));
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
 
-    if (newZoom === state.zoom) return;
+      const currentState = stateRef.current;
+      
+      // Calculate new zoom
+      const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
+      const newZoom = Math.max(minZoom, Math.min(maxZoom, currentState.zoom + delta));
 
-    // Zoom towards mouse position
-    const zoomRatio = newZoom / state.zoom;
-    const newPanX = mouseX - (mouseX - state.panX) * zoomRatio;
-    const newPanY = mouseY - (mouseY - state.panY) * zoomRatio;
+      if (newZoom === currentState.zoom) return;
 
-    updateState({
-      zoom: newZoom,
-      panX: newPanX,
-      panY: newPanY,
-    });
-  }, [disabled, state, minZoom, maxZoom, zoomStep, updateState]);
+      // Zoom towards mouse position
+      const zoomRatio = newZoom / currentState.zoom;
+      const newPanX = mouseX - (mouseX - currentState.panX) * zoomRatio;
+      const newPanY = mouseY - (mouseY - currentState.panY) * zoomRatio;
+
+      updateState({
+        zoom: newZoom,
+        panX: newPanX,
+        panY: newPanY,
+      });
+    };
+
+    // Attach with { passive: false } to allow preventDefault
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [containerRef, disabled, minZoom, maxZoom, zoomStep, updateState]);
 
   useEffect(() => {
     if (!isPanning) return;
@@ -190,7 +209,6 @@ export function usePanZoom({
     transform,
     containerProps: {
       onMouseDown: handleMouseDown,
-      onWheel: handleWheel,
       style: {
         cursor: isPanning ? 'grabbing' : disabled ? 'default' : 'grab',
         overflow: 'hidden',
